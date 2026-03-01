@@ -1,0 +1,12 @@
+# ignore the model weights once downloaded
+model.ckpt
+
+# virtual environment
+.venv/
+
+# ignore caches
+__pycache__/
+.pytest_cache/
+
+# test files
+*.tlc

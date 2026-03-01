@@ -1,0 +1,7 @@
+numpy>=1.24
+soundfile>=0.12.0
+torch>=2.0
+tqdm>=4.65
+gdown
+pytorch_lightning>=2.0
+transformers>=4.0
