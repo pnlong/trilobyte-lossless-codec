@@ -136,7 +136,7 @@ def save_waveform(
     
     # save waveform
     sf.write(
-        filename = path,
+        file = path,
         data = data,
         samplerate = sample_rate,
         subtype = subtype,
