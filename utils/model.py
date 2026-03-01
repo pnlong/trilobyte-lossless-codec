@@ -98,10 +98,22 @@ class GPTAudioLightningModule(pl.LightningModule):
         Returns:
             Outputs.
         """
-        return self.model(
+        outputs = self.model(
             input_ids=input_ids,
             labels=labels,
         )
+        if not SEPARATE_BYTE_SUBVOCABULARIES:
+            # Due to a bug, model was trained with vocab 0..768 (bytes 0-255 per byte slot + mask at 768).
+            # Effective vocab: 0-255 (bytes) + mask. Retain 0-255 and 768; drop 256-767.
+            # MODEL SURGERY!!!
+            outputs.logits = torch.cat(
+                [
+                    outputs.logits[..., :VOCAB_PER_BYTE],
+                    outputs.logits[..., -1:], # mask token
+                ],
+                dim=-1,
+            )
+        return outputs
 
     def _per_byte_bpb(
         self,
@@ -301,7 +313,10 @@ def get_vocab_size(model_bit_depth: int = MODEL_BIT_DEPTH) -> int:
         Vocab size (257 when SEPARATE_BYTE_SUBVOCABULARIES=False).
     """
     bytes_per_sample = int(math.ceil(model_bit_depth / 8))
-    return (bytes_per_sample * VOCAB_PER_BYTE) + 1
+    if SEPARATE_BYTE_SUBVOCABULARIES:
+        return (bytes_per_sample * VOCAB_PER_BYTE) + 1
+    else:
+        return VOCAB_PER_BYTE + 1
 
 ##################################################
 
@@ -321,7 +336,10 @@ def _get_mask_token(
     Returns:
         Mask token.
     """
-    return bytes_per_sample * VOCAB_PER_BYTE
+    if SEPARATE_BYTE_SUBVOCABULARIES:
+        return bytes_per_sample * VOCAB_PER_BYTE
+    else:
+        return VOCAB_PER_BYTE   
 
 
 def convert_waveform_to_tokens(
