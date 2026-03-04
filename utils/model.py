@@ -26,6 +26,7 @@ from utils.constants import (
     MODEL_BIT_DEPTH,
     VOCAB_PER_BYTE,
     SEPARATE_BYTE_SUBVOCABULARIES,
+    MODEL_SURGERY,
 )
 
 # logging
@@ -102,7 +103,7 @@ class GPTAudioLightningModule(pl.LightningModule):
             input_ids=input_ids,
             labels=labels,
         )
-        if not SEPARATE_BYTE_SUBVOCABULARIES:
+        if MODEL_SURGERY and not SEPARATE_BYTE_SUBVOCABULARIES:
             # Due to a bug, model was trained with vocab 0..768 (bytes 0-255 per byte slot + mask at 768).
             # Effective vocab: 0-255 (bytes) + mask. Retain 0-255 and 768; drop 256-767.
             # MODEL SURGERY!!!
@@ -313,10 +314,10 @@ def get_vocab_size(model_bit_depth: int = MODEL_BIT_DEPTH) -> int:
         Vocab size (257 when SEPARATE_BYTE_SUBVOCABULARIES=False).
     """
     bytes_per_sample = int(math.ceil(model_bit_depth / 8))
-    if SEPARATE_BYTE_SUBVOCABULARIES:
-        return (bytes_per_sample * VOCAB_PER_BYTE) + 1
-    else:
+    if MODEL_SURGERY and not SEPARATE_BYTE_SUBVOCABULARIES:
         return VOCAB_PER_BYTE + 1
+    else:
+        return (bytes_per_sample * VOCAB_PER_BYTE) + 1
 
 ##################################################
 
@@ -336,10 +337,10 @@ def _get_mask_token(
     Returns:
         Mask token.
     """
-    if SEPARATE_BYTE_SUBVOCABULARIES:
-        return bytes_per_sample * VOCAB_PER_BYTE
+    if MODEL_SURGERY and not SEPARATE_BYTE_SUBVOCABULARIES:
+        return VOCAB_PER_BYTE
     else:
-        return VOCAB_PER_BYTE   
+        return bytes_per_sample * VOCAB_PER_BYTE
 
 
 def convert_waveform_to_tokens(
@@ -373,7 +374,8 @@ def convert_waveform_to_tokens(
     bits_per_sample = bit_depth
 
     # flatten channel-major: (C, N) or (N,) -> (C*N,)
-    samples = waveform.reshape(-1).to(torch.int64)
+    samples = waveform.reshape(-1) # LRLRLRLRLR...
+    samples = samples.to(torch.int64)
 
     # convert to bytes
     byte_list = []
@@ -385,7 +387,7 @@ def convert_waveform_to_tokens(
             else:
                 byte_val = (samples << (-shift)) & 0xFF
             if SEPARATE_BYTE_SUBVOCABULARIES:
-                byte_list.append(byte_val + i * VOCAB_PER_BYTE)
+                byte_list.append(byte_val + (i * VOCAB_PER_BYTE))
             else:
                 byte_list.append(byte_val)
         else:

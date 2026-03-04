@@ -81,10 +81,7 @@ def encode(
     num_channels = waveform.shape[0] if waveform.dim() > 1 else 1
     num_samples = waveform.shape[1] if waveform.dim() > 1 else waveform.shape[0]
 
-    # assert that waveform is in range [-1, 1]
-    assert waveform.min() >= -1 and waveform.max() <= 1, "Waveform must be in range [-1, 1]"
-
-    # convert floating point waveform to unsigned integers
+    # convert signed integers to unsigned integers
     waveform = convert_waveform_to_unsigned_integers(
         waveform = waveform,
         bit_depth = bit_depth,

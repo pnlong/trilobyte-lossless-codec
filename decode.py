@@ -106,15 +106,11 @@ def decode(
         list(waveform.shape), waveform.numel(), num_samples,
     )
 
-    # convert unsigned integers waveform to floating point
+    # convert unsigned integers waveform to signed integers
     waveform = convert_waveform_from_unsigned_integers(
         waveform = waveform,
         bit_depth = bit_depth,
-    ) # waveform is now in range [-1, 1]
-
-    # assert that waveform is in range [-1, 1]
-    logger.debug("before waveform min/max assert: waveform_numel=%s", waveform.numel())
-    assert waveform.min() >= -1 and waveform.max() <= 1, "Waveform must be in range [-1, 1]"
+    ) # waveform is now in range [-2**31, 2**31 - 1]
 
     return waveform, sample_rate, bit_depth
 

@@ -43,6 +43,9 @@ VOCAB_PER_BYTE = 256
 # if False, all positions use [0,255], MASK=256
 SEPARATE_BYTE_SUBVOCABULARIES = False
 
+# whether we perform model surgery to correct the model's vocabulary bug
+MODEL_SURGERY = True
+
 ##################################################
 
 

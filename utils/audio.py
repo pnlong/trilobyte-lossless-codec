@@ -10,6 +10,7 @@
 import numpy as np
 import soundfile as sf
 import torch
+import logging
 
 # standard library
 from typing import Tuple
@@ -20,6 +21,9 @@ from utils.constants import (
     SUBTYPE_TO_BIT_DEPTH,
     MAX_BIT_DEPTH,
 )
+
+# logging
+logger = logging.getLogger(__name__)  # get logger for the current module
 
 ##################################################
 
@@ -42,7 +46,7 @@ def load_waveform(
     Returns:
         Tuple of (waveform, sample_rate, bit_depth).
         waveform: torch.Tensor of shape (num_channels, num_samples), 
-            float64 in range [-1, 1].
+            int32 in range [-2**31, 2**31 - 1].
         sample_rate: Sample rate in Hz.
         bit_depth: Audio bit depth (e.g. 8, 16, 24).
     """
@@ -65,11 +69,20 @@ def load_waveform(
     # read audio
     waveform, _ = sf.read(
         file = path,
-        dtype = np.float64,
+        dtype = np.int32,
         always_2d = True,
     ) # in range [-1, 1]
     waveform = waveform.T # (num_channels, num_samples)
     waveform = torch.from_numpy(waveform)
+
+    # debug: print stats
+    logger.debug(
+        "Loaded waveform with sample rate %s and bit depth %s (num_channels: %s, num_samples: %s)",
+        sample_rate,
+        bit_depth,
+        waveform.shape[0],
+        waveform.shape[1],
+    )
 
     return waveform, sample_rate, bit_depth
 
@@ -83,21 +96,24 @@ def convert_waveform_to_unsigned_integers(
 
     Args:
         waveform: Waveform tensor of shape (num_channels, num_samples), 
-            float64 in range [-1, 1].
+            int32 in range [-2**31, 2**31 - 1].
         bit_depth: Audio bit depth (e.g. 8, 16, 24).
 
     Returns:
         Waveform tensor of shape (num_channels, num_samples), 
             int64 in range [0, (2 ** bit_depth) - 1].
     """
-    waveform = waveform + 1 # to range [0, 2]
-    waveform = waveform * ((2 ** (bit_depth - 1)) - 0.5) # to range [0, (2 ** bit_depth) - 1]
-    waveform = torch.round(waveform).to(torch.int64) # convert to integer
-    waveform = torch.clamp( # clip waveform to bit depth, though realistically it should rarely happen
-        input = waveform,
-        min = 0,
-        max = (2 ** bit_depth) - 1,
-    )
+
+    # convert to unsigned integers
+    shift = 32 - bit_depth # soundfile scales sub-32-bit formats to fill int32 range. The bit_depth-bit value is the top bit_depth bits.
+    waveform = waveform.to(torch.int64) # convert to desired integer type
+    if shift > 0:
+        waveform = waveform >> shift # right shift to remove the bottom 32 - bit_depth bits
+    waveform = waveform + (1 << (bit_depth - 1)) # add 2 ** (bit_depth - 1) for signed->unsigned conversion
+
+    # debug: print stats
+    logger.debug("Converted waveform to unsigned integers with min/max: %s/%s", waveform.min().item(), waveform.max().item())
+
     return waveform
 
 ##################################################
@@ -118,7 +134,7 @@ def save_waveform(
     Args:
         path: Path to the output file.
         waveform: Waveform tensor of shape (num_channels, num_samples), 
-            float64 in range [-1, 1].
+            int32 in range [-2**31, 2**31 - 1].
         sample_rate: Sample rate in Hz.
         bit_depth: Audio bit depth (e.g. 8, 16, 24).
     """
@@ -132,7 +148,7 @@ def save_waveform(
 
     # waveform is (channels, samples), but soundfile expects (samples, channels)
     data = waveform.cpu().numpy().T
-    assert data.dtype == np.float64, f"Waveform dtype is {data.dtype}, but should be float64 in range [-1, 1]"
+    assert data.dtype == np.int32, f"Waveform dtype is {data.dtype}, but should be int32 in range [-2**31, 2**31 - 1]"
     
     # save waveform
     sf.write(
@@ -141,6 +157,9 @@ def save_waveform(
         samplerate = sample_rate,
         subtype = subtype,
     )
+
+    # debug: print stats
+    logger.debug("Saved waveform to %s with sample rate %s and bit depth %s", path, sample_rate, bit_depth)
 
     return
 
@@ -159,16 +178,19 @@ def convert_waveform_from_unsigned_integers(
 
     Returns:
         Waveform tensor of shape (num_channels, num_samples), 
-            float64 in range [-1, 1].
+            int32 in range [-2**31, 2**31 - 1].
     """
-    waveform = waveform.to(torch.float64) # convert to float64
-    waveform = waveform / ((2 ** (bit_depth - 1)) - 0.5) # to range [0, 2]
-    waveform = waveform - 1 # to range [-1, 1]
-    waveform = torch.clamp(
-        input = waveform,
-        min = -1,
-        max = 1,
-    )
+
+    # convert to signed integers
+    shift = 32 - bit_depth
+    waveform = waveform - (1 << (bit_depth - 1)) # subtract 2 ** (bit_depth - 1) for unsigned->signed conversion
+    if shift > 0:
+        waveform = waveform << shift # left shift to add back bottom 32 - bit_depth bits
+    waveform = waveform.to(torch.int32) # convert to int32
+
+    # debug: print stats
+    logger.debug("Converted waveform from unsigned integers to signed integers with min/max: %s/%s", waveform.min().item(), waveform.max().item())
+
     return waveform
 
 ##################################################
