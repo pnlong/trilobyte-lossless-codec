@@ -10,9 +10,11 @@
 
 # standard library
 import logging
+import math
 from typing import BinaryIO
 from tqdm import tqdm  # progress bar
 import torch
+import torch.nn.functional as F
 
 # utils
 from utils.arithmetic_coder import (
@@ -179,20 +181,40 @@ def encode_blocks(
         )
 
         # get pdfs for current batch of blocks: iteratively pass blocks_batch[:, :i]
+        vocab_size = get_vocab_size(model_bit_depth = model_bit_depth)
         pdfs = torch.zeros(
-            (current_block_size, get_vocab_size(model_bit_depth = model_bit_depth)), # shape (current_block_size, vocab_size)
+            (current_block_size, vocab_size), # shape (current_block_size, vocab_size)
             dtype = torch.float32,
             device = model.device,
+        )
+        logits_block = torch.zeros(
+            (current_block_size, vocab_size),
+            dtype=torch.float32,
+            device=model.device,
         )
         for i in range(current_block_size):
             with torch.no_grad():
                 logits = model(
                     torch.cat((block[:i], dummy_token), dim = 0).unsqueeze(dim = 0) # input of shape (batch_size = 1, i + 1)
                 ).logits # logits of shape (batch_size = 1, i + 1, vocab_size)
-            pdf = torch.softmax(logits[0, -1, :], dim = -1) # (vocab_size,)
+            logits = logits[0, -1, :] # shape (vocab_size,)
+            logits_block[i, :] = logits # shape (vocab_size,)
+            pdf = torch.softmax(logits, dim = -1) # shape (vocab_size,)
             pdfs[i, :] = pdf
         logger.debug(
             "encode_blocks: block_size = %s pdfs.shape = %s", block_size, pdfs.shape,
+        )
+
+        # debug: cross entropy of logits vs actual tokens -> BPB -> compression rate
+        cross_entropy = F.cross_entropy(
+            input = logits_block, # shape (current_block_size, vocab_size)
+            target = block.long(), # shape (current_block_size,)
+        ).item()
+        bpb = cross_entropy / math.log(2)
+        compression_rate = 8.0 / bpb
+        logger.debug(
+            "encode_blocks: block %s cross_entropy=%.4f bpb=%.4f compression_rate=%.4fx",
+            block_idx, cross_entropy, bpb, compression_rate,
         )
 
         # encode current batch of blocks
@@ -206,13 +228,13 @@ def encode_blocks(
             precision = ARITHMETIC_CODER_PRECISION,
             output_fn = bits.append,
         )
-        for pdf, symbol in zip(
+        for pdf, token in zip(
             pdfs.cpu().numpy(),
             block.cpu().numpy().tolist(),
         ):
             encoder.encode(
                 pdf = normalize_pdf_for_arithmetic_coding(pdf = pdf),
-                symbol = symbol,
+                symbol = token,
             )
         encoder.terminate()
         write_bits_to_stream(

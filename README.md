@@ -28,6 +28,29 @@ bash download_model.sh /path/to/model.ckpt
 
 Use `bash download_model.sh --help` to see options. The download script requires the virtual environment from step 1 (it uses `gdown` from `.venv`). If you download the model to a path other than **`model.ckpt`** in the project root, see **Model path and bit depth** below for how to point the CLI or code at your checkpoint.
 
+**Alternatively: set up yourself**
+
+- **Environment** — create and activate a virtual environment, then install dependencies:
+
+  ```bash
+  python3 -m venv .venv
+  source .venv/bin/activate   # on Windows: .venv\Scripts\activate
+  pip install --upgrade pip
+  pip install -r requirements.txt
+  ```
+
+  For dev (e.g. pytest): `pip install -r requirements-dev.txt`
+
+- **Model weights** — download the checkpoint yourself and save it as **`model.ckpt`** (or another path and use **--modelpath**). Weights link:
+
+  **https://drive.google.com/uc?id=1TjGG7NtAb-FdxoF1Cq04t2u0mqeB9q5W**
+
+  From the command line you can use `gdown` (e.g. after `pip install gdown`):
+
+  ```bash
+  gdown "https://drive.google.com/uc?id=1TjGG7NtAb-FdxoF1Cq04t2u0mqeB9q5W" -O model.ckpt
+  ```
+
 After setup, activate the environment and run the CLI:
 
 ```bash

@@ -112,7 +112,7 @@ def parse_args(args = None, namespace = None):
 
     # infer output file path if not provided
     if args.outfile is None:
-        args.outfile = join(dirname(__file__), f"{splitext(basename(args.infile))[0]}.{FILE_EXTENSION}")
+        args.outfile = join(abspath(dirname(__file__)), f"{splitext(basename(args.infile))[0]}.{FILE_EXTENSION}")
     else:
         args.outfile = abspath(args.outfile)
 

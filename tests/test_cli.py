@@ -2,9 +2,8 @@
 #
 # Not pytest: run as `python tests/test_cli.py AUDIO_FILE [OPTIONS]`.
 # Loads an audio file, extracts num_chunks random segments of chunk_size seconds
-# (skipping silence via RMS filtering), runs tlc.py encode on each via subprocess
-# with --workers parallel processes, and reports compression rate.
-# Uses progress bars (tqdm) and logging (stderr) so you can follow progress.
+# (skipping silence via RMS filtering), runs tlc.py encode on each chunk sequentially,
+# and reports compression rate. Uses progress bars (tqdm) and logging (stderr).
 
 # IMPORTS
 ##################################################
@@ -12,7 +11,6 @@
 # standard library
 import argparse
 import logging
-import multiprocessing
 import os
 import random
 import shutil
@@ -42,19 +40,24 @@ logger = logging.getLogger(__name__)
 # HELPERS
 ##################################################
 
-def _run_one(args):
+
+def _run_one(wav_path, project_root, tlc_script):
     """
     Encode a single chunk WAV with tlc.py via subprocess.
 
     Returns the compression rate (original size / compressed size) for that chunk.
     """
-    wav_path, project_root, tlc_script = args
     tlc_path = splitext(wav_path)[0] + ".tlc"
+    env = os.environ.copy()
+    env["OMP_NUM_THREADS"] = "1"
+    env["MKL_NUM_THREADS"] = "1"
+    env["OPENBLAS_NUM_THREADS"] = "1"
+    env["NUMEXPR_NUM_THREADS"] = "1"
     subprocess.run(
-        [sys.executable, tlc_script, wav_path, "-o", tlc_path, "-s"],
+        [sys.executable, tlc_script, wav_path, "-o", tlc_path],
         cwd=project_root,
         check=True,
-        capture_output=True,
+        env=env,
     )
     return getsize(wav_path) / getsize(tlc_path)
 
@@ -90,12 +93,6 @@ def main():
         help="Number of random chunks to extract and compress (default: 5).",
     )
     parser.add_argument(
-        "--workers",
-        type=int,
-        default=None,
-        help="Number of parallel workers (default: CPU count // 4).",
-    )
-    parser.add_argument(
         "--output_dir",
         type=str,
         default=None,
@@ -116,8 +113,7 @@ def main():
         print(f"Error: tlc.py not found at {tlc_script}", file=sys.stderr)
         sys.exit(1)
 
-    workers = args.workers if args.workers is not None else max(1, multiprocessing.cpu_count() // 4)
-    logger.info("Input: %s  chunk_size=%.1fs  num_chunks=%d  workers=%d", filepath, args.chunk_size, args.num_chunks, workers)
+    logger.info("Input: %s  chunk_size=%.1fs  num_chunks=%d", filepath, args.chunk_size, args.num_chunks)
 
     ##################################################
 
@@ -221,15 +217,10 @@ def main():
             wav_paths.append(wav_path)
         logger.info("Wrote %d chunk WAV(s) to %s", len(wav_paths), workdir)
 
-        # Encode each chunk with tlc.py (parallel subprocesses)
-        task_args = [(p, project_root, tlc_script) for p in wav_paths]
-        with multiprocessing.Pool(processes=workers) as pool:
-            rates = list(tqdm(
-                pool.imap(_run_one, task_args),
-                total=len(task_args),
-                desc="Encoding chunks (tlc.py)",
-                unit="chunk",
-            ))
+        # Encode each chunk with tlc.py (sequential subprocesses)
+        rates = []
+        for wav_path in tqdm(wav_paths, desc="Encoding chunks (tlc.py)", unit="chunk"):
+            rates.append(_run_one(wav_path, project_root, tlc_script))
         logger.info("Encoded %d chunk(s); compression rates collected", len(rates))
 
     finally:
@@ -247,7 +238,7 @@ def main():
     min_rate = min(rates)
     max_rate = max(rates)
     logger.info("Compression rate: mean=%.2fx min=%.2fx max=%.2fx", mean_rate, min_rate, max_rate)
-    print(f"Chunks: {num_chunks}  Workers: {workers}")
+    print(f"Chunks: {num_chunks}")
     print(f"Compression rate: mean={mean_rate:.2f}x  min={min_rate:.2f}x  max={max_rate:.2f}x")
     if args.output_dir is not None:
         print(f"Wrote {num_chunks * 2} files to {outdir}")

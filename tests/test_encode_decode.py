@@ -9,6 +9,7 @@
 
 # standard library
 from io import BytesIO
+from math import pi
 from os.path import exists
 import pytest
 import torch
@@ -16,7 +17,10 @@ import torch
 # utils
 from encode import encode
 from decode import decode
-from utils.audio import convert_waveform_from_unsigned_integers
+from utils.audio import (
+    convert_waveform_from_unsigned_integers,
+    convert_waveform_to_unsigned_integers,
+)
 from utils.constants import (
     BLOCK_SIZE,
     MODEL_PATH,
@@ -87,6 +91,20 @@ def _float_waveform(shape, bit_depth: int) -> torch.Tensor:
 
 # ROUNDTRIP TESTS
 ##################################################
+
+def test_roundtrip_mono_24bit_440hz_sine(model):
+    """Mono 24-bit roundtrip on a 440 Hz sine waveform (quantized comparison)."""
+    sample_rate = 44100
+    num_samples = 1024
+    bit_depth = 24
+    t = torch.arange(num_samples, dtype=torch.float32) / sample_rate
+    sine = torch.sin(2 * pi * 440 * t).unsqueeze(0)  # (1, num_samples), range [-1, 1]
+    # Expected after encode/decode is the quantized sine (float representation of int PCM)
+    unsigned = convert_waveform_to_unsigned_integers(sine, bit_depth)
+    expected = convert_waveform_from_unsigned_integers(unsigned, bit_depth)
+    decoded = _roundtrip_stream(sine, sample_rate, bit_depth, model)
+    assert decoded.shape == sine.shape
+    torch.testing.assert_close(decoded, expected)
 
 
 def test_roundtrip_mono_24bit_two_blocks(model):
