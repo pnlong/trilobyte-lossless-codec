@@ -186,8 +186,8 @@ def encode_blocks(
         )
         logits_block = torch.zeros(
             (current_block_size, vocab_size),
-            dtype=torch.float32,
-            device=model.device,
+            dtype = torch.float32,
+            device = model.device,
         )
         for i in range(current_block_size):
             with torch.no_grad():
@@ -205,13 +205,11 @@ def encode_blocks(
         # debug: cross entropy of logits vs actual tokens -> BPB -> compression rate
         cross_entropy = F.cross_entropy(
             input = logits_block, # shape (current_block_size, vocab_size)
-            target = block.long(), # shape (current_block_size,)
+            target = block, # shape (current_block_size,)
         ).item()
-        bpb = cross_entropy / math.log(2)
-        compression_rate = 8.0 / bpb
         logger.debug(
             "encode_blocks: block %s cross_entropy=%.4f bpb=%.4f compression_rate=%.4fx",
-            block_idx, cross_entropy, bpb, compression_rate,
+            block_idx, cross_entropy, cross_entropy / math.log(2), 8.0 * (math.log(2) / cross_entropy),
         )
 
         # encode current batch of blocks
