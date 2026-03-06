@@ -211,9 +211,11 @@ def encode_blocks(
             input = logits_block, # shape (current_block_size, vocab_size)
             target = block, # shape (current_block_size,)
         ).item()
+        bpb = cross_entropy / log(2)
+        expected_compression_rate = 8.0 / bpb
         logger.debug(
-            "encode_blocks: block %s cross_entropy=%.4f bpb=%.4f compression_rate=%.4fx",
-            block_idx, cross_entropy, cross_entropy / log(2), 8.0 * (log(2) / cross_entropy),
+            "encode_blocks: block %s cross_entropy=%.4f bpb=%.4f expected_compression_rate=%.4fx",
+            block_idx, cross_entropy, bpb, expected_compression_rate,
         )
 
         # get probability density functions
@@ -242,6 +244,19 @@ def encode_blocks(
         write_bits_to_stream(
             bits = bits, 
             stream = stream,
+        )
+
+        # debug: calculate actual compression rate
+        raw_block_size = (current_block_size / bytes_per_sample) * ceil(bit_depth / 8)
+        compressed_block_size = ceil(len(bits) / 8)
+        actual_compression_rate = raw_block_size / compressed_block_size
+        logger.debug(
+            "encode_blocks: block %s actual_compression_rate=%.4fx",
+            block_idx, actual_compression_rate,
+        )
+        logger.debug(
+            "encode_blocks: block %s actual_compression_rate=%.4fx expected_compression_rate=%.4fx",
+            block_idx, actual_compression_rate, expected_compression_rate,
         )
 
     return
