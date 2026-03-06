@@ -2,6 +2,8 @@
 
 The Trilobyte Lossless Codec (TLC) encodes and decodes audio losslessly to and from **Trilobyte Lossless Codec (.tlc)** files using a neural model and arithmetic coding.
 
+Research and experiments related to Trilobyte are available at [pnlong/trilobyte-experiments](https://github.com/pnlong/trilobyte-experiments).
+
 ---
 
 ## Setup
