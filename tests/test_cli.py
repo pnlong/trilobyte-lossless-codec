@@ -165,7 +165,10 @@ def main():
     # Compute RMS for every possible chunk (vectorized): for each start index,
     # RMS = sqrt(mean(waveform[:, start:start+L]^2)). We use unfold to get all
     # windows at once, then mean and sqrt.
-    squared = waveform.square()
+    # NOTE: waveform is int32 PCM; cast to float before squaring/mean to avoid
+    # integer overflow and because torch.mean() does not support integer dtypes.
+    waveform_f = waveform.to(torch.float64)
+    squared = waveform_f.square()
     chunks_sq = squared.unfold(1, samples_per_chunk, 1)  # (C, num_windows, samples_per_chunk)
     rms_per_start = (chunks_sq.mean(dim=(0, 2)) + 1e-12).sqrt()  # (num_windows,)
     # Keep only start indices whose chunk RMS is at least the 25th percentile,
