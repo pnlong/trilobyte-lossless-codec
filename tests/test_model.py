@@ -50,7 +50,7 @@ def _roundtrip(
 ##################################################
 
 
-# ROUNDTRIP TESTS (SEPARATE_BYTE_SUBVOCABULARIES=False default)
+# ROUNDTRIP TESTS
 ##################################################
 
 def test_roundtrip_mono_24bit():
@@ -90,7 +90,7 @@ def test_roundtrip_1d_mono():
 ##################################################
 
 
-# FORMAT TESTS (SEPARATE_BYTE_SUBVOCABULARIES=False)
+# FORMAT TESTS
 ##################################################
 
 def test_format_all_bytes_in_range():

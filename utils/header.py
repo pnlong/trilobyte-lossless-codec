@@ -28,29 +28,6 @@ logger = logging.getLogger(__name__) # get logger for the current module
 ##################################################
 
 
-# HELPER FUNCTIONS
-##################################################
-
-def verify_power_of_two(
-    n: int,
-) -> bool:
-    """
-    Verify if a value is a power of two.
-
-    Args:
-        n: The value to verify.
-
-    Returns:
-        True if the value is a power of two, False otherwise.
-    """
-    if n <= 0:
-        return False
-    else:
-        return log2(n).is_integer()
-
-##################################################
-
-
 # ENCODE HEADER
 ##################################################
 
@@ -74,12 +51,12 @@ def encode_header(
     bit_depth = header["bit_depth"]
 
     # verify that block size and batch size are powers of two
-    assert verify_power_of_two(n = block_size), "Block size must be a power of two"
+    assert block_size > 0, "Block size must be a positive number"
     assert num_channels == 1 or num_channels == 2, "Number of channels must be 1 (mono) or 2 (stereo)"
     assert bit_depth % 8 == 0, "Bit depth must be a multiple of 8"
     
     # determine encoded values for header
-    block_size_encoded = int(log2(block_size))
+    block_size_encoded = int(block_size)
     num_samples_encoded = num_samples
     num_channels_encoded = num_channels - 1
     sample_rate_encoded = sample_rate
@@ -151,7 +128,7 @@ def decode_header(
     bit_depth_encoded = (packed >> shift) & ((1 << BIT_DEPTH_BITS) - 1)
 
     # recompute original variables
-    block_size = 2 ** block_size_encoded
+    block_size = block_size_encoded
     num_samples = num_samples_encoded
     num_channels = num_channels_encoded + 1
     sample_rate = sample_rate_encoded

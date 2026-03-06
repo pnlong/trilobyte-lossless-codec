@@ -23,7 +23,6 @@ from utils.constants import (
     BLOCK_SIZE,
     FILE_EXTENSION,
 )
-from utils.header import verify_power_of_two
 from utils.model import load_model
 from encode import encode_wrapper
 from decode import decode_wrapper
@@ -137,15 +136,15 @@ def parse_args(args = None, namespace = None):
     if args.silent and args.verbose:
         raise ValueError("Cannot be both silent and verbose.")
 
-    # ensure encoding arguments -- block size and batch size -- are consistent
+    # ensure encoding and block size are consistent
     if args.decode and args.blocksize is not None:
         raise ValueError("Cannot specify block size when decoding.")
     elif not args.decode and args.blocksize is None:
         args.blocksize = BLOCK_SIZE
 
-    # verify that block size and batch size are powers of two
-    if not verify_power_of_two(n = args.blocksize):
-        raise ValueError(f"Block size must be a power of two: {args.blocksize}")
+    # verify that block size is a positive number
+    if args.blocksize <= 0:
+        raise ValueError("Block size must be a positive number.")
 
     return args # return parsed arguments
 

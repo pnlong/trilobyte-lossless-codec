@@ -35,16 +35,11 @@ MODEL_PATH = join(dirname(dirname(__file__)), "model.ckpt")
 # default model bit depth
 MODEL_BIT_DEPTH = 24
 
-# vocab size per byte position
+# vocab size per byte position, do not change, as this should remain constant for the model
 VOCAB_PER_BYTE = 256
 
-# whether we use separate byte sub-vocabularies in the model
-# if True, byte positions use separate sub-vocabularies (Byte 0: [0,255], Byte 1: [256,511], etc.)
-# if False, all positions use [0,255], MASK=256
-SEPARATE_BYTE_SUBVOCABULARIES = False
-
-# whether we perform model surgery to correct the model's vocabulary bug
-MODEL_SURGERY = True
+# bytes per sample for model
+BYTES_PER_SAMPLE = int(ceil(MODEL_BIT_DEPTH / 8))
 
 ##################################################
 
@@ -61,8 +56,8 @@ FILE_EXTENSION = "tlc"
 # HEADER CONSTANTS
 ##################################################
 
-# number of bits for storing block size, where we store k for block size 2^k
-BLOCK_SIZE_BITS = 4
+# number of bits for storing block size, meaning we assume a maximum of 2 ** BLOCK_SIZE_BITS samples in a block
+BLOCK_SIZE_BITS = 16
 
 # number of bits for storing number of samples, meaning we assume a maximum of 2 ** NUM_SAMPLES_BITS samples
 NUM_SAMPLES_BITS = 32

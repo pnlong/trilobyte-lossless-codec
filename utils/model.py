@@ -10,7 +10,7 @@
 ##################################################
 
 # standard library
-import math
+from math import ceil
 import logging
 from os.path import exists
 from typing import Optional, Dict, Any
@@ -24,9 +24,8 @@ from transformers import GPT2Config, GPT2LMHeadModel, get_cosine_schedule_with_w
 from utils.constants import (
     MODEL_PATH,
     MODEL_BIT_DEPTH,
+    BYTES_PER_SAMPLE,
     VOCAB_PER_BYTE,
-    SEPARATE_BYTE_SUBVOCABULARIES,
-    MODEL_SURGERY,
 )
 
 # logging
@@ -37,11 +36,6 @@ logger = logging.getLogger(__name__)  # get logger for the current module
 
 # GPT AUDIO LIGHTNING MODULE (for loading checkpoints)
 ##################################################
-
-# checkpoint-compatible constants (matches train_gpt2)
-_BYTES_PER_SAMPLE_CKPT = 3
-_VOCAB_SIZE_CKPT = _BYTES_PER_SAMPLE_CKPT * VOCAB_PER_BYTE + 1  # 769
-
 
 class GPTAudioLightningModule(pl.LightningModule):
     """
@@ -71,18 +65,18 @@ class GPTAudioLightningModule(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         config = GPT2Config.from_pretrained(model_name)
-        config.vocab_size = _VOCAB_SIZE_CKPT
+        config.vocab_size = (BYTES_PER_SAMPLE * VOCAB_PER_BYTE) + 1
         if max_position_embeddings is not None:
             config.max_position_embeddings = max_position_embeddings
         else:
             stereo_mult = 2 if stereo_interleave else 1
             config.max_position_embeddings = (
-                chunk_size * _BYTES_PER_SAMPLE_CKPT * stereo_mult + 1
+                chunk_size * BYTES_PER_SAMPLE * stereo_mult + 1
             )
         self.model = GPT2LMHeadModel(config)
         if kwargs.get("gradient_checkpointing"):
             self.model.gradient_checkpointing_enable()
-        self.n_bytes = _BYTES_PER_SAMPLE_CKPT
+        self.n_bytes = BYTES_PER_SAMPLE
 
     def forward(
         self,
@@ -103,17 +97,6 @@ class GPTAudioLightningModule(pl.LightningModule):
             input_ids=input_ids,
             labels=labels,
         )
-        if MODEL_SURGERY and not SEPARATE_BYTE_SUBVOCABULARIES:
-            # Due to a bug, model was trained with vocab 0..768 (bytes 0-255 per byte slot + mask at 768).
-            # Effective vocab: 0-255 (bytes) + mask. Retain 0-255 and 768; drop 256-767.
-            # MODEL SURGERY!!!
-            outputs.logits = torch.cat(
-                [
-                    outputs.logits[..., :VOCAB_PER_BYTE],
-                    outputs.logits[..., -1:], # mask token
-                ],
-                dim=-1,
-            )
         return outputs
 
     def _per_byte_bpb(
@@ -313,11 +296,8 @@ def get_vocab_size(model_bit_depth: int = MODEL_BIT_DEPTH) -> int:
     Returns:
         Vocab size (257 when SEPARATE_BYTE_SUBVOCABULARIES=False).
     """
-    bytes_per_sample = int(math.ceil(model_bit_depth / 8))
-    if MODEL_SURGERY and not SEPARATE_BYTE_SUBVOCABULARIES:
-        return VOCAB_PER_BYTE + 1
-    else:
-        return (bytes_per_sample * VOCAB_PER_BYTE) + 1
+    bytes_per_sample = int(ceil(model_bit_depth / 8))
+    return (bytes_per_sample * VOCAB_PER_BYTE) + 1
 
 ##################################################
 
@@ -337,10 +317,7 @@ def _get_mask_token(
     Returns:
         Mask token.
     """
-    if MODEL_SURGERY and not SEPARATE_BYTE_SUBVOCABULARIES:
-        return VOCAB_PER_BYTE
-    else:
-        return bytes_per_sample * VOCAB_PER_BYTE
+    return bytes_per_sample * VOCAB_PER_BYTE
 
 
 def convert_waveform_to_tokens(
@@ -368,13 +345,13 @@ def convert_waveform_to_tokens(
         )
 
     # get constants
-    bytes_per_sample = int(math.ceil(model_bit_depth / 8))
-    n_bytes_audio = int(math.ceil(bit_depth / 8))
+    bytes_per_sample = int(ceil(model_bit_depth / 8))
+    n_bytes_audio = int(ceil(bit_depth / 8))
     mask_token = _get_mask_token(bytes_per_sample = bytes_per_sample)
     bits_per_sample = bit_depth
 
     # flatten channel-major: (C, N) or (N,) -> (C*N,)
-    samples = waveform.reshape(-1) # LRLRLRLRLR...
+    samples = waveform.reshape(-1) # concatenate right channel after left channel
     samples = samples.to(torch.int64)
 
     # convert to bytes
@@ -386,10 +363,7 @@ def convert_waveform_to_tokens(
                 byte_val = (samples >> shift) & 0xFF
             else:
                 byte_val = (samples << (-shift)) & 0xFF
-            if SEPARATE_BYTE_SUBVOCABULARIES:
-                byte_list.append(byte_val + (i * VOCAB_PER_BYTE))
-            else:
-                byte_list.append(byte_val)
+            byte_list.append(byte_val)
         else:
             byte_list.append(torch.full_like(samples, mask_token, dtype = torch.int64))
 
@@ -432,8 +406,8 @@ def convert_tokens_to_waveform(
         )
 
     # get constants
-    bytes_per_sample = int(math.ceil(model_bit_depth / 8))
-    n_bytes_audio = int(math.ceil(bit_depth / 8))
+    bytes_per_sample = int(ceil(model_bit_depth / 8))
+    n_bytes_audio = int(ceil(bit_depth / 8))
     mask_token = _get_mask_token(bytes_per_sample=bytes_per_sample)
 
     # raise error if token length is not divisible by bytes per sample
@@ -448,10 +422,7 @@ def convert_tokens_to_waveform(
     bytes_arr = []
     for i in range(bytes_per_sample):
         t = tokens[:, i]
-        if SEPARATE_BYTE_SUBVOCABULARIES:
-            raw = (t - i * VOCAB_PER_BYTE) & 0xFF
-        else:
-            raw = t.clamp(0, 255)
+        raw = t.clamp(0, VOCAB_PER_BYTE - 1)
         byte_val = torch.where(t == mask_token, torch.zeros_like(raw), raw)
         bytes_arr.append(byte_val)
 

@@ -34,6 +34,7 @@ from utils.constants import (
 )
 from utils.header import decode_header
 from utils.model import (
+    convert_waveform_to_tokens,
     convert_tokens_to_waveform,
     GPTAudioLightningModule,
 )
@@ -89,6 +90,7 @@ def decode(
         model = model,
         num_samples = num_samples,
         num_channels = num_channels,
+        bit_depth = bit_depth,
         model_bit_depth = model_bit_depth,
         block_size = block_size,
         silent = silent,
@@ -120,6 +122,7 @@ def decode_blocks(
     model: GPTAudioLightningModule,
     num_samples: int,
     num_channels: int,
+    bit_depth: int,
     model_bit_depth: int = MODEL_BIT_DEPTH,
     block_size: int = BLOCK_SIZE,
     silent: bool = False,
@@ -132,8 +135,9 @@ def decode_blocks(
         model: Trained GPTAudioLightningModule.
         num_samples: Number of samples per channel.
         num_channels: Number of channels (1 = mono, 2 = stereo).
+        bit_depth: Audio bit depth.
         model_bit_depth: Model bit depth. Defaults to MODEL_BIT_DEPTH.
-        block_size: Block size. Defaults to BLOCK_SIZE.
+        block_size: Block size (in samples). Defaults to BLOCK_SIZE.
         silent: If True, do not show progress bar. Defaults to False.
 
     Returns:
@@ -141,35 +145,43 @@ def decode_blocks(
     """
 
     # get info
-    bytes_per_sample = int(model_bit_depth // 8)
+    bytes_per_sample = int(ceil(model_bit_depth / 8))
     num_tokens = num_samples * num_channels * bytes_per_sample
-    num_tokens_in_last_block = (num_tokens % block_size) if num_tokens % block_size != 0 else block_size
-    num_blocks = int(ceil(num_tokens / block_size))
+    effective_block_size = block_size * bytes_per_sample
+    num_tokens_in_last_block = (num_tokens % effective_block_size) if num_tokens % effective_block_size != 0 else effective_block_size
+    num_blocks = int(ceil(num_tokens / effective_block_size))
     logger.debug(
-        "decode_blocks entry: num_samples=%s num_channels=%s bytes_per_sample=%s num_tokens=%s num_blocks=%s block_size=%s",
-        num_samples, num_channels, bytes_per_sample, num_tokens, num_blocks, block_size,
+        "decode_blocks entry: num_samples=%s num_channels=%s bytes_per_sample=%s num_tokens=%s num_blocks=%s effective_block_size=%s",
+        num_samples, num_channels, bytes_per_sample, num_tokens, num_blocks, effective_block_size,
     )
 
-    # initialize tokens and block range
+    # initialize tokens
     tokens = torch.zeros(
         num_tokens,
         dtype = torch.int64,
         device = model.device,
     )
+
+    # create dummy tokens
+    dummy_tokens = convert_waveform_to_tokens(
+        waveform = torch.full(
+            (1, 1), # shape (num_channels = 1, num_samples = 1)
+            ARITHMETIC_CODER_BOS,
+            dtype = tokens.dtype,
+            device = model.device,
+        ),
+        bit_depth = bit_depth,
+        model_bit_depth = model_bit_depth,
+    ) # shape (model_bit_depth // 8,)
+    num_dummy_tokens = len(dummy_tokens)
+
+    # decode blocks
     block_range = range(num_blocks)
     if not silent:
         block_range = tqdm(
             iterable = block_range,
             desc = "Decoding blocks",
         )
-
-    # decode blocks
-    dummy_token = torch.full(
-        (1,), # shape (1,)
-        ARITHMETIC_CODER_BOS,
-        dtype = tokens.dtype,
-        device = model.device,
-    )
     for block_idx in block_range:            
 
         # define input function for decoder
@@ -188,26 +200,30 @@ def decode_blocks(
 
         # decode block
         is_last_block = (block_idx == num_blocks - 1) # determine if current block is the last block
-        current_block_size = num_tokens_in_last_block if is_last_block else block_size
-        block = torch.zeros(
-            (current_block_size,), # shape (current_block_size,)
-            dtype = tokens.dtype,
-            device = model.device,
-        )
+        current_block_size = num_tokens_in_last_block if is_last_block else effective_block_size
+        block_with_dummy = torch.cat([
+            dummy_tokens, 
+            torch.zeros(
+                (current_block_size,), # shape (current_block_size,)
+                dtype = tokens.dtype,
+                device = model.device,
+            ),
+        ], dim = 0) # shape (current_block_size + num_dummy_tokens,)
         for i in range(current_block_size):
+            current_token_idx = i + num_dummy_tokens
             with torch.no_grad():
                 logits = model(
-                    torch.cat((block[:i], dummy_token), dim = 0).unsqueeze(dim = 0) # input of shape (batch_size = 1, i + 1)
+                    block_with_dummy[:current_token_idx].unsqueeze(dim = 0) # input of shape (batch_size = 1, i + num_dummy_tokens)
                 ).logits # logits of shape (batch_size = 1, i + 1, vocab_size)
             pdf = torch.softmax(logits[0, -1, :], dim = -1).cpu().numpy() # (vocab_size,)
             token = decoder.decode(
                 pdf = normalize_pdf_for_arithmetic_coding(pdf = pdf),
             )
-            block[i] = token
+            block_with_dummy[current_token_idx] = token
 
         # add block tokens to tokens
-        block_start_idx = block_idx * block_size
-        tokens[block_start_idx:(block_start_idx + current_block_size)] = block
+        block_start_idx = block_idx * effective_block_size
+        tokens[block_start_idx:(block_start_idx + current_block_size)] = block_with_dummy[num_dummy_tokens:] # shape (current_block_size,), exclude dummy tokens
         logger.debug(
             "decode_blocks: decode block %s first_10_tokens=%s",
             block_idx, tokens[block_start_idx:(block_start_idx + 10)],

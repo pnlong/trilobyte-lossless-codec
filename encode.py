@@ -10,7 +10,7 @@
 
 # standard library
 import logging
-import math
+from math import ceil, log
 from typing import BinaryIO
 from tqdm import tqdm  # progress bar
 import torch
@@ -70,7 +70,7 @@ def encode(
         sample_rate: Sample rate in Hz.
         bit_depth: Audio bit depth (e.g. 8, 16, 24).
         model_bit_depth: Model bit depth. Defaults to MODEL_BIT_DEPTH.
-        block_size: Block size. Defaults to BLOCK_SIZE.
+        block_size: Block size (in samples). Defaults to BLOCK_SIZE.
         silent: If True, do not show progress bar. Defaults to False.
     """
 
@@ -111,8 +111,9 @@ def encode(
         tokens = tokens,
         model = model,
         stream = stream,
-        block_size = block_size,
+        bit_depth = bit_depth,
         model_bit_depth = model_bit_depth,
+        block_size = block_size,
         silent = silent,
     )
 
@@ -121,8 +122,9 @@ def encode_blocks(
     tokens: torch.Tensor,
     model: GPTAudioLightningModule,
     stream: BinaryIO,
-    block_size: int,
+    bit_depth: int,
     model_bit_depth: int = MODEL_BIT_DEPTH,
+    block_size: int = BLOCK_SIZE,
     silent: bool = False,
 ) -> None:
     """
@@ -132,30 +134,46 @@ def encode_blocks(
         tokens: Flat token sequence.
         model: Trained GPTAudioLightningModule.
         stream: Binary output stream.
-        block_size: Block size.
+        bit_depth: Audio bit depth.
         model_bit_depth: Model bit depth. Defaults to MODEL_BIT_DEPTH.
+        block_size: Block size (in samples). Defaults to BLOCK_SIZE.
         silent: If True, do not show progress bar. Defaults to False.
     """
 
     # get info
     num_tokens = tokens.shape[0]
-    num_tokens_in_last_block = (num_tokens % block_size) if num_tokens % block_size != 0 else block_size
+    bytes_per_sample = int(ceil(model_bit_depth / 8))
+    effective_block_size = block_size * bytes_per_sample
+    num_tokens_in_last_block = (num_tokens % effective_block_size) if num_tokens % effective_block_size != 0 else effective_block_size
 
     # pad token sequence to be divisible by block size
-    if num_tokens_in_last_block != block_size:
+    if num_tokens_in_last_block != effective_block_size:
         tokens = torch.cat([
             tokens,
-            torch.zeros(block_size - num_tokens_in_last_block, dtype = tokens.dtype),
+            torch.zeros(effective_block_size - num_tokens_in_last_block, dtype = tokens.dtype),
         ], dim = 0)
     tokens = tokens.to(model.device) # move tokens to model device
 
     # partition token sequence into blocks
-    num_blocks = int(tokens.shape[0] // block_size)
-    blocks = tokens.reshape(num_blocks, block_size)
+    num_blocks = int(tokens.shape[0] // effective_block_size)
+    blocks = tokens.reshape(num_blocks, effective_block_size)
     logger.debug(
-        "encode_blocks entry: num_tokens=%s num_blocks=%s block_size=%s",
-        num_tokens, num_blocks, block_size,
+        "encode_blocks entry: num_tokens=%s num_blocks=%s effective_block_size=%s",
+        num_tokens, num_blocks, effective_block_size,
     )
+
+    # create dummy tokens
+    dummy_tokens = convert_waveform_to_tokens(
+        waveform = torch.full(
+            (1, 1), # shape (num_channels = 1, num_samples = 1)
+            ARITHMETIC_CODER_BOS,
+            dtype = blocks.dtype,
+            device = model.device,
+        ),
+        bit_depth = bit_depth,
+        model_bit_depth = model_bit_depth,
+    ) # shape (model_bit_depth // 8,)
+    num_dummy_tokens = len(dummy_tokens)
 
     # encode blocks in batches
     block_range = range(num_blocks)
@@ -168,38 +186,24 @@ def encode_blocks(
 
         # get current batch of blocks
         is_last_block = (block_idx == num_blocks - 1) # determine if current block is the last block
-        current_block_size = num_tokens_in_last_block if is_last_block else block_size
+        current_block_size = num_tokens_in_last_block if is_last_block else effective_block_size
         block = blocks[block_idx, :current_block_size] # shape (current_block_size,)
-        dummy_token = torch.full(
-            (1,),
-            ARITHMETIC_CODER_BOS,
-            dtype = block.dtype,
-            device = model.device,
-        )
+        block_with_dummy = torch.cat([dummy_tokens, block], dim = 0) # shape (current_block_size + num_dummy_tokens,)
 
-        # get pdfs for current batch of blocks: iteratively pass blocks_batch[:, :i]
-        vocab_size = get_vocab_size(model_bit_depth = model_bit_depth)
-        pdfs = torch.zeros(
-            (current_block_size, vocab_size), # shape (current_block_size, vocab_size)
-            dtype = torch.float32,
-            device = model.device,
-        )
+        # iteratively pass block through model
         logits_block = torch.zeros(
-            (current_block_size, vocab_size),
+            (current_block_size, get_vocab_size(model_bit_depth = model_bit_depth)),
             dtype = torch.float32,
             device = model.device,
         )
         for i in range(current_block_size):
             with torch.no_grad():
                 logits = model(
-                    torch.cat((block[:i], dummy_token), dim = 0).unsqueeze(dim = 0) # input of shape (batch_size = 1, i + 1)
-                ).logits # logits of shape (batch_size = 1, i + 1, vocab_size)
-            logits = logits[0, -1, :] # shape (vocab_size,)
-            logits_block[i, :] = logits # shape (vocab_size,)
-            pdf = torch.softmax(logits, dim = -1) # shape (vocab_size,)
-            pdfs[i, :] = pdf
+                    block_with_dummy[:i + num_dummy_tokens].unsqueeze(dim = 0) # input of shape (batch_size = 1, i + num_dummy_tokens)
+                ).logits # logits of shape (batch_size = 1, i + num_dummy_tokens, vocab_size)
+            logits_block[i, :] = logits[0, -1, :] # shape (vocab_size,)
         logger.debug(
-            "encode_blocks: block_size = %s pdfs.shape = %s", block_size, pdfs.shape,
+            "encode_blocks: effective_block_size = %s logits_block.shape = %s", effective_block_size, logits_block.shape,
         )
 
         # debug: cross entropy of logits vs actual tokens -> BPB -> compression rate
@@ -209,8 +213,11 @@ def encode_blocks(
         ).item()
         logger.debug(
             "encode_blocks: block %s cross_entropy=%.4f bpb=%.4f compression_rate=%.4fx",
-            block_idx, cross_entropy, cross_entropy / math.log(2), 8.0 * (math.log(2) / cross_entropy),
+            block_idx, cross_entropy, cross_entropy / log(2), 8.0 * (log(2) / cross_entropy),
         )
+
+        # get probability density functions
+        pdfs = torch.softmax(logits_block, dim = -1) # shape (len(block), vocab_size)
 
         # encode current batch of blocks
         logger.debug(
@@ -261,7 +268,7 @@ def encode_wrapper(
         path_output: Path to the output file (compressed .tlc file).
         model: Trained GPTAudioLightningModule.
         model_bit_depth: Model bit depth. Defaults to MODEL_BIT_DEPTH.
-        block_size: Block size. Defaults to BLOCK_SIZE.
+        block_size: Block size (in samples). Defaults to BLOCK_SIZE.
         silent: If True, do not show progress to stderr. Defaults to False.
     """
 
