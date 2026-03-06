@@ -19,7 +19,6 @@ from encode import encode
 from decode import decode
 from utils.audio import (
     convert_waveform_from_unsigned_integers,
-    convert_waveform_to_unsigned_integers,
 )
 from utils.constants import (
     BLOCK_SIZE,

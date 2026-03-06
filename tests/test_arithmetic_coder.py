@@ -11,7 +11,6 @@
 from io import BytesIO
 from typing import List, Union
 import numpy as np
-import pytest
 import torch
 
 # utils

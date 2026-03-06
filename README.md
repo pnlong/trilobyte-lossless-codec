@@ -102,7 +102,7 @@ python tlc.py INFILE [OPTIONS]
 
 **Encoding-only options (ignored when decoding):**
 
-- **-b**, **--blocksize** — Block size (default from constants). Must be a power of two.
+- **-b**, **--blocksize** — Block size (in samples) (default from constants).
 
 **Examples:**
 

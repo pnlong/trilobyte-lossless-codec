@@ -9,7 +9,6 @@
 
 # standard library
 from io import BytesIO
-import pytest
 
 # utils (run from repo root: python -m pytest tests/)
 from utils.header import encode_header, decode_header

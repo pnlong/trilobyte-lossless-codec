@@ -18,7 +18,6 @@ from utils.model import (
     GPTAudioLightningModule,
     convert_tokens_to_waveform,
     convert_waveform_to_tokens,
-    get_vocab_size,
     load_model,
 )
 
