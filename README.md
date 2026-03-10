@@ -151,3 +151,31 @@ Edit **`utils/constants.py`** and set:
 - **`MODEL_BIT_DEPTH`** – default model bit depth (e.g. `24`).
 
 These defaults are used when you do not pass **--modelpath** or **--modeldepth** to `tlc.py`.
+
+---
+
+## Example audio file and reference sizes
+
+This repository includes an example audio file, **`example.wav`**, so you can quickly try out the CLI and compare compression behavior against FLAC.
+
+- **Original WAV**: `example.wav`.
+- **FLAC version**: `example.flac`.
+
+  ```bash
+  flac example.wav -o example.flac
+  ```
+
+- **TLC-compressed version**: `example.tlc`.
+
+  ```bash
+  python tlc.py example.wav -o example.tlc
+  ```
+
+You can then compare the file sizes of the original WAV, the FLAC, and the TLC output. The table below is a template for recording those sizes (in bytes); fill in the numbers for your environment:
+
+| File           | How it was created                                | Size (bytes) | Compression Rate (x)  |
+|----------------|---------------------------------------------------|--------------|-----------------------|
+| `example.wav`  | Provided in repo (original WAV)                   | 1769738      | N/A                   |
+| `example.flac` | `flac example.wav -o example.flac`                | 1122679      | 1.576                 |
+| `example.tlc`  | `python tlc.py example.wav -o example.tlc`        | TODO         | TODO                  |
+
