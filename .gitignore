@@ -7,6 +7,3 @@ model.ckpt
 # ignore caches
 __pycache__/
 .pytest_cache/
-
-# test files
-*.tlc
