@@ -177,7 +177,7 @@ You can then compare the file sizes of the original WAV, the FLAC, and the TLC o
 |----------------|---------------------------------------------------|--------------|-----------------------|
 | `example.wav`  | Provided in repo (original WAV)                   | 1769738      | N/A                   |
 | `example.flac` | `flac example.wav -o example.flac`                | 1122679      | 1.576                 |
-| `example.tlc`  | `python tlc.py example.wav -o example.tlc`        | TODO         | TODO                  |
+| `example.tlc`  | `python tlc.py example.wav -o example.tlc`        | 1067566      | 1.658                 |
 
 ---
 
