@@ -173,11 +173,11 @@ This repository includes an example audio file, **`example.wav`**, so you can qu
 
 You can then compare the file sizes of the original WAV, the FLAC, and the TLC output. The table below is a template for recording those sizes (in bytes); fill in the numbers for your environment:
 
-| File           | How it was created                                | Size (bytes) | Compression Rate (x)  |
-|----------------|---------------------------------------------------|--------------|-----------------------|
-| `example.wav`  | Provided in repo (original WAV)                   | 1769738      | N/A                   |
-| `example.flac` | `flac example.wav -o example.flac`                | 1122679      | 1.576                 |
-| `example.tlc`  | `python tlc.py example.wav -o example.tlc`        | 1067566      | 1.658                 |
+| File           | How it was created                                | Size (KB)     | Compression Rate (x)  |
+|----------------|---------------------------------------------------|---------------|-----------------------|
+| `example.wav`  | Provided in repo (original WAV)                   | 1769.738      | N/A                   |
+| `example.flac` | `flac example.wav -o example.flac`                | 1122.679      | 1.576                 |
+| `example.tlc`  | `python tlc.py example.wav -o example.tlc`        | 1067.566      | 1.658                 |
 
 ---
 
