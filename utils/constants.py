@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__) # get logger for the current module
 # default block size
 BLOCK_SIZE = 512
 
+# default batch size; batched inference is currently under development, as batching results in non-lossless compression
+BATCH_SIZE = 1
+assert BATCH_SIZE == 1, "Batch size must be 1 for lossless compression; batched inference is currently under development, as batching results in non-lossless compression"
+
 ##################################################
 
 

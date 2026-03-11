@@ -179,3 +179,30 @@ You can then compare the file sizes of the original WAV, the FLAC, and the TLC o
 | `example.flac` | `flac example.wav -o example.flac`                | 1122679      | 1.576                 |
 | `example.tlc`  | `python tlc.py example.wav -o example.tlc`        | TODO         | TODO                  |
 
+---
+
+## Note on batching (In Development)
+
+**Batched inference is currently under development.** At the moment, batching can introduce **non-deterministic model behavior**, which breaks the strict determinism required for **lossless** compression.
+
+- **Encoding**: batching would significantly speed up encoding (more efficient model calls).
+- **Decoding**: batching does not help decoding, since the bitstream structure requires decoding **sequentially**, one block at a time.
+
+---
+
+## Citing & Authors
+
+If you use this project in your work, feel free to cite our publication [Benchmarking Language Modeling for Lossless Compression of Full-Fidelity Audio](https://arxiv.org/abs/2603.08683):
+
+```bibtex
+@misc{long2026benchmarking,
+  title         = {Benchmarking Language Modeling for Lossless Compression of Full-Fidelity Audio},
+  author        = {Long, Phillip and Novack, Zachary and Donahue, Chris},
+  year          = {2026},
+  eprint        = {2603.08683},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.SD},
+  note          = {Submitted for review at Interspeech 2026}
+}
+```
+
